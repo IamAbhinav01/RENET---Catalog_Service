@@ -26,3 +26,12 @@ type CreateInteractionRequest struct {
 	Rating    float32 `json:"rating" binding:"required"`
 	EventType string  `json:"event_type"`
 }
+
+type OMDbResponse struct {
+	Title    string `json:"Title"`
+	Year     string `json:"Year"`
+	Plot     string `json:"Plot"`
+	Poster   string `json:"Poster"`
+	Response string `json:"Response"`
+	Error    string `json:"Error"`
+}
