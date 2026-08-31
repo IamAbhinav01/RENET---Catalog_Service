@@ -12,6 +12,8 @@ type CatalogRepository interface {
 	ListItems(page, limit int) ([]models.Item, int64, error)
 	SearchItems(query string, limit int) ([]models.Item, error)
 	UpdatePosterAndPlot(id int, posterURL, plot string) error
+	CreateInteraction(*models.Interaction) error
+	GetByUserIDInteraction(userID, limit int) ([]models.Interaction, error)
 }
 
 // 2. Struct Implementation
@@ -70,4 +72,19 @@ func (repo *CatalogRepositoryImpl) UpdatePosterAndPlot(id int, posterURL, plot s
 			"poster_url": posterURL,
 			"plot":       plot,
 		}).Error
+}
+
+//8. create interaction logic 
+func(repo *CatalogRepositoryImpl)CreateInteraction(interactions *models.Interaction) error{
+	return repo.db.Create(interactions).Error
+}
+
+//9. detals of users based on interactions
+func(repo *CatalogRepositoryImpl)GetByUserIDInteraction(userID, limit int) ([]models.Interaction, error){
+	var list []models.Interaction
+	err := repo.db.Where("user_id = ?", userID).
+		Order("id DESC").
+		Limit(limit).
+		Find(&list).Error
+	return list, err
 }
