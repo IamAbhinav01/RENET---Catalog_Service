@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"renet-catalog/config"
 	"renet-catalog/db/repositories"
 	"renet-catalog/models"
+	"strings"
 )
 
 type CatalogService interface {
+	ConcatenateTitleAndYear(text string) (title string, year string) 
 	FetchMoviesMetaData(title string) (*models.OMDbResponse, error)
 }
 
@@ -46,4 +49,13 @@ func (serv *CatalogServiceImpl) FetchMoviesMetaData(title string) (*models.OMDbR
 	}
 
 	return &omdbResponse, nil
+}
+// 2. Concatenate title and year
+func (serv *CatalogServiceImpl) ConcatenateTitleAndYear(text string) (title string, year string)  {
+	re := regexp.MustCompile(`^(.*)\s*\((\d{4})\)$`)
+	matches := re.FindStringSubmatch(strings.TrimSpace(text))
+	if len(matches) == 3 {
+		return strings.TrimSpace(matches[1]), matches[2]
+	}
+	return strings.TrimSpace(text), ""
 }
