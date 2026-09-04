@@ -14,6 +14,7 @@ type CatalogRepository interface {
 	UpdatePosterAndPlot(id int, posterURL, plot string) error
 	CreateInteraction(*models.Interaction) error
 	GetByUserIDInteraction(userID, limit int) ([]models.Interaction, error)
+	
 }
 
 // 2. Struct Implementation
