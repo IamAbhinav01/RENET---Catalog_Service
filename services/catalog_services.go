@@ -1,7 +1,9 @@
 package services
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"renet-catalog/config"
 	"renet-catalog/db/repositories"
@@ -14,11 +16,13 @@ type CatalogService interface {
 
 type CatalogServiceImpl struct {
 	repo repositories.CatalogRepository
+	client *http.Client
 }
 
-func NewCatalogServiceImpl(repo repositories.CatalogRepository) CatalogService {
+func NewCatalogServiceImpl(repo repositories.CatalogRepository, client *http.Client) CatalogService {
 	return &CatalogServiceImpl{
 		repo: repo,
+		client: client,
 	}
 }
 
@@ -28,6 +32,18 @@ func (serv *CatalogServiceImpl) FetchMoviesMetaData(title string) (*models.OMDbR
 
 	apikey := config.GetString("OMDB_API_KEY")
 	url := fmt.Sprintf("https://www.omdbapi.com/?apikey=%s&t=%s",apikey,url.QueryEscape(title)) //url.QueryEscape("hello world") // Returns "hello+world"   
-	
-	return nil, nil
+	res,err:=serv.client.Get(url)
+	if err!=nil{
+		fmt.Printf("Error occured while retreiving the info from OMDB server %s",err)
+		return nil,err
+	}
+	defer res.Body.Close()
+
+	var omdbResponse models.OMDbResponse
+	if err := json.NewDecoder(res.Body).Decode(&omdbResponse); err != nil {
+		fmt.Printf("Error occured while decoding the response from OMDB server %s", err)
+		return nil, err
+	}
+
+	return &omdbResponse, nil
 }
