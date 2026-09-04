@@ -15,6 +15,7 @@ import (
 type CatalogService interface {
 	ConcatenateTitleAndYear(text string) (title string, year string) 
 	FetchMoviesMetaData(title string) (*models.OMDbResponse, error)
+	GetMovieByID(id int) (*models.Item, error)
 }
 
 type CatalogServiceImpl struct {
@@ -34,7 +35,11 @@ func NewCatalogServiceImpl(repo repositories.CatalogRepository, client *http.Cli
 func (serv *CatalogServiceImpl) FetchMoviesMetaData(title string) (*models.OMDbResponse, error) {
 
 	apikey := config.GetString("OMDB_API_KEY")
+	title,year := serv.ConcatenateTitleAndYear(title)
 	url := fmt.Sprintf("https://www.omdbapi.com/?apikey=%s&t=%s",apikey,url.QueryEscape(title)) //url.QueryEscape("hello world") // Returns "hello+world"   
+	if year != "" {
+		url += fmt.Sprintf("&y=%s", year)
+	}
 	res,err:=serv.client.Get(url)
 	if err!=nil{
 		fmt.Printf("Error occured while retreiving the info from OMDB server %s",err)
@@ -58,4 +63,12 @@ func (serv *CatalogServiceImpl) ConcatenateTitleAndYear(text string) (title stri
 		return strings.TrimSpace(matches[1]), matches[2]
 	}
 	return strings.TrimSpace(text), ""
+}
+//3. Get movie by ID
+func (serv *CatalogServiceImpl) GetMovieByID(id int) (*models.Item, error) {
+	item,err:=serv.repo.GetByID(id)
+	if err != nil {
+		return nil, err
+	}
+	return item, nil
 }
