@@ -16,6 +16,8 @@ type CatalogService interface {
 	ConcatenateTitleAndYear(text string) (title string, year string) 
 	FetchMoviesMetaData(title string) (*models.OMDbResponse, error)
 	GetMovieByID(id int) (*models.Item, error)
+	ListMovies(page, limit int) ([]models.Item, int64, error)
+	SearchMovies(query string, limit int) ([]models.Item, error)
 }
 
 type CatalogServiceImpl struct {
@@ -34,9 +36,9 @@ func NewCatalogServiceImpl(repo repositories.CatalogRepository, client *http.Cli
 // 1. Fetch movies metadata from external API (e.g., OMDb)
 func (serv *CatalogServiceImpl) FetchMoviesMetaData(title string) (*models.OMDbResponse, error) {
 
-	apikey := config.GetString("OMDB_API_KEY")
+	apikey_url := config.GetString("OMDB_API_KEY")
 	title,year := serv.ConcatenateTitleAndYear(title)
-	url := fmt.Sprintf("https://www.omdbapi.com/?apikey=%s&t=%s",apikey,url.QueryEscape(title)) //url.QueryEscape("hello world") // Returns "hello+world"   
+	url := fmt.Sprintf("%s&t=%s",apikey_url,url.QueryEscape(title)) //url.QueryEscape("hello world") // Returns "hello+world"   
 	if year != "" {
 		url += fmt.Sprintf("&y=%s", year)
 	}
@@ -71,4 +73,29 @@ func (serv *CatalogServiceImpl) GetMovieByID(id int) (*models.Item, error) {
 		return nil, err
 	}
 	return item, nil
+}
+//4. Get all movies
+func (serv *CatalogServiceImpl) ListMovies(page, limit int) ([]models.Item, int64, error) {
+	if page < 1{
+		page = 1
+	}
+	if limit < 1 || limit > 100{
+		limit = 20
+	}
+	items, count, err := serv.repo.ListItems(page, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	return items, count, nil
+}
+//5. Search movies 
+func(serv *CatalogServiceImpl)SearchMovies(query string, limit int) ([]models.Item, error){
+	if limit < 1 || limit > 50{
+		limit = 20
+	}
+	items,err := serv.repo.SearchItems(query,limit)
+	if err != nil {
+		return nil, err
+	}
+	return items, nil
 }
