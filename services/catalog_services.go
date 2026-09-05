@@ -20,6 +20,7 @@ type CatalogService interface {
 	SearchMovies(query string, limit int) ([]models.Item, error)
 	EmbedMovieMetadata(itemID int, rawTitle string)
 	GetUserHistory(userId int, limit int)([]models.Interaction, error)
+	RecordUserInteraction(userId int,req *models.CreateInteractionRequest) error
 }
 
 type CatalogServiceImpl struct {
@@ -133,4 +134,25 @@ func(serv *CatalogServiceImpl)GetUserHistory(userId int, limit int)([]models.Int
 		return nil, err
 	}
 	return interaction, nil
+}
+//8. Record User Interaction
+func(serv *CatalogServiceImpl)RecordUserInteraction(userId int,req *models.CreateInteractionRequest) error{
+	eventType :=req.EventType
+	if eventType == ""{
+		eventType = "rating"
+	}
+
+	interaction := &models.Interaction{
+		UserID: userId,
+		ItemID: req.ItemID,
+		Rating: req.Rating,
+		EventType: eventType,
+	}
+
+	err:=serv.repo.CreateInteraction(interaction)
+	if err != nil {
+		fmt.Printf("Error recording interaction for user ID %d: %v\n", userId, err)
+		return err
+	}
+	return nil
 }
