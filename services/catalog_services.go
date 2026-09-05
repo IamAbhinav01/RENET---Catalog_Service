@@ -18,6 +18,7 @@ type CatalogService interface {
 	GetMovieByID(id int) (*models.Item, error)
 	ListMovies(page, limit int) ([]models.Item, int64, error)
 	SearchMovies(query string, limit int) ([]models.Item, error)
+	EmbedMovieMetadata(itemID int, rawTitle string)
 }
 
 type CatalogServiceImpl struct {
@@ -72,6 +73,9 @@ func (serv *CatalogServiceImpl) GetMovieByID(id int) (*models.Item, error) {
 	if err != nil {
 		return nil, err
 	}
+	if item == nil || *item.PosterURL == "" || *item.PosterURL == "N/A" {
+		go serv.EmbedMovieMetadata(id, item.Title)
+	}
 	return item, nil
 }
 //4. Get all movies
@@ -98,4 +102,23 @@ func(serv *CatalogServiceImpl)SearchMovies(query string, limit int) ([]models.It
 		return nil, err
 	}
 	return items, nil
+}
+//6. Embed movie metadata
+func (serv *CatalogServiceImpl) EmbedMovieMetadata(itemID int, title string){
+	omdbData,err := serv.FetchMoviesMetaData(title)
+	if err != nil {
+		fmt.Printf("Error fetching metadata for item ID %d: %v\n", itemID, err)
+		return
+	}
+	posterURL := omdbData.Poster
+	if posterURL == "N/A" {
+		posterURL = ""
+	}
+	plot := omdbData.Plot
+	err = serv.repo.UpdatePosterAndPlot(itemID,posterURL,plot)
+	if err != nil {
+		fmt.Printf("Error updating metadata for item ID %d: %v\n", itemID, err)
+	}else{
+		fmt.Printf("Successfully updated metadata for item ID %d\n", itemID)
+	}
 }
