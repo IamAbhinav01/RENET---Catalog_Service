@@ -19,6 +19,7 @@ type CatalogService interface {
 	ListMovies(page, limit int) ([]models.Item, int64, error)
 	SearchMovies(query string, limit int) ([]models.Item, error)
 	EmbedMovieMetadata(itemID int, rawTitle string)
+	GetUserHistory(userId int, limit int)([]models.Interaction, error)
 }
 
 type CatalogServiceImpl struct {
@@ -121,4 +122,15 @@ func (serv *CatalogServiceImpl) EmbedMovieMetadata(itemID int, title string){
 	}else{
 		fmt.Printf("Successfully updated metadata for item ID %d\n", itemID)
 	}
+}
+//7. Get User History
+func(serv *CatalogServiceImpl)GetUserHistory(userId int, limit int)([]models.Interaction, error){
+	if limit <= 0 || limit > 100{
+		limit = 50
+	}
+	interaction,err:=serv.repo.GetByUserIDInteraction(userId,limit)
+	if err != nil {
+		return nil, err
+	}
+	return interaction, nil
 }
