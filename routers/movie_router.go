@@ -14,4 +14,6 @@ func (r *Router) RegiserWithMovies(catalogService services.CatalogService) {
 
     movies.GET("/:id", catalogController.GetMovie)
     movies.GET("/", catalogController.ListMovies)
+    movies.GET("/search", catalogController.SearchMovies)
+   
 }

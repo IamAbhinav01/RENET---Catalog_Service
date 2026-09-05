@@ -21,4 +21,5 @@ func NewRouter(catalogService services.CatalogService) *Router {
 
 func (r *Router) RegisterRoutes(catalogService services.CatalogService) {
     r.RegiserWithMovies(catalogService)
+    r.RegiserWithHistory(catalogService)
 }

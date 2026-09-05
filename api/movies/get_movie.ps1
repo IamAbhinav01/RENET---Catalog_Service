@@ -1,6 +1,6 @@
 Write-Host "Testing GET /movies/3..."
 
-$response = curl.exe -s -w "`n%{http_code}" http://localhost:3000/movies/3
+$response = curl.exe -s -w "`n%{http_code}" http://localhost:3000/movies/8
 
 $parts = $response -split "`n"
 $body = $parts[0]
