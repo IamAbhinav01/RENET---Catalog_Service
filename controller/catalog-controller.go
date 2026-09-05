@@ -31,3 +31,30 @@ func (ctrl *CatalogController) GetMovie(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, movie)
 }
+func (ctrl *CatalogController) ListMovies(c *gin.Context) {
+	page := c.DefaultQuery("page", "1")
+	pageint ,err := strconv.Atoi(page)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid page number"})
+		return
+	}
+	limit := c.DefaultQuery("limit", "10")
+	limitint ,err := strconv.Atoi(limit)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid limit number"})
+		return
+	}
+
+	items,total,err := ctrl.CatalogService.ListMovies(pageint,limitint)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list movies"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"page": pageint,
+		"limit": limitint,
+		"data": items,
+		"total": total,
+	})
+}

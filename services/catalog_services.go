@@ -29,12 +29,16 @@ type CatalogService interface {
 type CatalogServiceImpl struct {
 	repo repositories.CatalogRepository
 	client *http.Client
+	omdbAPI_URL string
+	REDIS_ADDR string
 }
 
-func NewCatalogServiceImpl(repo repositories.CatalogRepository, client *http.Client) CatalogService {
+func NewCatalogServiceImpl(repo repositories.CatalogRepository, client *http.Client,omdbAPI_URL string,REDIS_ADDR string) CatalogService {
 	return &CatalogServiceImpl{
 		repo: repo,
 		client: client,
+		omdbAPI_URL: omdbAPI_URL,
+		REDIS_ADDR: REDIS_ADDR,
 	}
 }
 
@@ -42,7 +46,7 @@ func NewCatalogServiceImpl(repo repositories.CatalogRepository, client *http.Cli
 // 1. Fetch movies metadata from external API (e.g., OMDb)
 func (serv *CatalogServiceImpl) FetchMoviesMetaData(title string) (*models.OMDbResponse, error) {
 
-	apikey_url := config.GetString("OMDB_API_KEY")
+	apikey_url := serv.omdbAPI_URL
 	title,year := serv.ConcatenateTitleAndYear(title)
 	url := fmt.Sprintf("%s&t=%s",apikey_url,url.QueryEscape(title)) //url.QueryEscape("hello world") // Returns "hello+world"   
 	if year != "" {
@@ -78,7 +82,10 @@ func (serv *CatalogServiceImpl) GetMovieByID(id int) (*models.Item, error) {
 	if err != nil {
 		return nil, err
 	}
-	if item == nil || *item.PosterURL == "" || *item.PosterURL == "N/A" {
+	if item == nil {
+		return nil, fmt.Errorf("movie %d not found", id)
+	}
+	if item.PosterURL == nil || *item.PosterURL == "" || *item.PosterURL == "N/A" {
 		go serv.EmbedMovieMetadata(id, item.Title)
 	}
 	return item, nil
@@ -161,7 +168,7 @@ func(serv *CatalogServiceImpl)RecordUserInteraction(userId int,req *models.Creat
 }
 //9. //Inavalidate old recommendations based on new interactions from cache
 func(serv *CatalogServiceImpl)InvalidateRecommendations(userId int) error{
-	redis_url := config.GetString("REDIS_ADDR")
+	redis_url := serv.REDIS_ADDR
 	
 	ctx,cancel := context.WithTimeout(context.Background(),2*time.Second)
 	defer cancel()

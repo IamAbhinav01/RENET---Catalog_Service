@@ -1,15 +1,24 @@
 package routers
 
-import "github.com/gin-gonic/gin"
+import (
+	"renet-catalog/services"
+
+	"github.com/gin-gonic/gin"
+)
 
 type Router struct {
-	Router *gin.Engine
+    Router *gin.Engine
 }
 
-func NewRouter() *Router{
-	r:=&Router{
-		Router: gin.Default(),
-	}
-	r.RegisterRoutes()
-	return r
+func NewRouter(catalogService services.CatalogService) *Router {
+    r := &Router{
+        Router: gin.Default(),
+    }
+
+    r.RegisterRoutes(catalogService)
+    return r
+}
+
+func (r *Router) RegisterRoutes(catalogService services.CatalogService) {
+    r.RegiserWithMovies(catalogService)
 }

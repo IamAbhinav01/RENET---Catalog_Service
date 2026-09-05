@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"net/http"
 	"renet-catalog/config"
+	"renet-catalog/db/repositories"
+	"renet-catalog/routers"
+	"renet-catalog/services"
 	"strings"
 	"time"
 )
@@ -28,6 +31,16 @@ func NewApplication() *Application {
 }
 
 func (app *Application) Run() error {
+
+	db,err := config.ConnectDB(app.DB_URL)
+	if err != nil {
+		return fmt.Errorf("failed to connect to database: %w", err)
+	}
+	repo := repositories.NewCatalogRepository(db)
+	catalogService := services.NewCatalogServiceImpl(repo,http.DefaultClient,app.OMDB_API_KEY,app.REDIS_ADDR)
+
+	router := routers.NewRouter(catalogService)
+
 	addr := app.PORT
 	
 	if !strings.HasPrefix(addr, ":") {
@@ -35,7 +48,7 @@ func (app *Application) Run() error {
 	}
 	server := http.Server{
 		Addr:         addr,
-		Handler:      http.DefaultServeMux,
+		Handler:      router.Router,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 150 * time.Second,
 	}
