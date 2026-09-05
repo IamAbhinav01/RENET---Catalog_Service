@@ -109,3 +109,31 @@ func(ctrl *CatalogController) RecordInteraction(c *gin.Context) {
 	}
 	c.JSON(http.StatusCreated, gin.H{"message": "Interaction recorded successfully"})
 }
+func(ctrl *CatalogController) GetUserHistory(c *gin.Context) {
+	userID,exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	userIDInt,ok := userID.(int)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user ID"})
+		return
+	}
+	limit := c.DefaultQuery("limit", "50")
+	limitint ,err := strconv.Atoi(limit)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid limit number"})
+		return
+	}
+	interactions, err := ctrl.CatalogService.GetUserHistory(userIDInt, limitint)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get user history"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"user_id": userIDInt,
+		"limit": limitint,
+		"data": interactions,
+	})
+}

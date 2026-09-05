@@ -7,12 +7,17 @@ Write-Host ""
 Write-Host "[TEST] POST /history"
 Write-Host ""
 
+$payloadFile = Join-Path $env:TEMP "renet-history-payload.json"
+Set-Content -Path $payloadFile -Value '{"item_id":3,"rating":5,"event_type":"rating"}' -NoNewline
+
 $response = curl.exe -s `
     -w "|||%{http_code}" `
     -X POST `
     "http://localhost:3000/history" `
     -H "Content-Type: application/json" `
-    -d '{"item_id":3,"rating":5,"event_type":"watched"}'
+    --data-binary "@$payloadFile"
+
+Remove-Item $payloadFile -ErrorAction SilentlyContinue
 
 # Separate response body and HTTP status
 $parts = $response -split '\|\|\|'

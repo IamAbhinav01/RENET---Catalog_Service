@@ -7,19 +7,19 @@ import (
 )
 
 type Router struct {
-    Router *gin.Engine
+	Router *gin.Engine
 }
 
 func NewRouter(catalogService services.CatalogService) *Router {
-    r := &Router{
-        Router: gin.Default(),
-    }
+	r := &Router{
+		Router: gin.Default(),
+	}
 
-    r.RegisterRoutes(catalogService)
-    return r
+	r.RegisterRoutes(catalogService)
+	return r
 }
 
 func (r *Router) RegisterRoutes(catalogService services.CatalogService) {
-    r.RegiserWithMovies(catalogService)
-    r.RegiserWithHistory(catalogService)
+	r.RegiserWithMovies(catalogService)
+	r.RegiserWithHistory(catalogService)
 }

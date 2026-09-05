@@ -15,47 +15,46 @@ import (
 )
 
 type CatalogService interface {
-	ConcatenateTitleAndYear(text string) (title string, year string) 
+	ConcatenateTitleAndYear(text string) (title string, year string)
 	FetchMoviesMetaData(title string) (*models.OMDbResponse, error)
 	GetMovieByID(id int) (*models.Item, error)
 	ListMovies(page, limit int) ([]models.Item, int64, error)
 	SearchMovies(query string, limit int) ([]models.Item, error)
 	EmbedMovieMetadata(itemID int, rawTitle string)
-	GetUserHistory(userId int, limit int)([]models.Interaction, error)
-	RecordUserInteraction(userId int,req *models.CreateInteractionRequest) error
+	GetUserHistory(userId int, limit int) ([]models.Interaction, error)
+	RecordUserInteraction(userId int, req *models.CreateInteractionRequest) error
 	InvalidateRecommendations(userId int) error
 }
 
 type CatalogServiceImpl struct {
-	repo repositories.CatalogRepository
-	client *http.Client
+	repo        repositories.CatalogRepository
+	client      *http.Client
 	omdbAPI_URL string
-	REDIS_ADDR string
+	REDIS_ADDR  string
 }
 
-func NewCatalogServiceImpl(repo repositories.CatalogRepository, client *http.Client,omdbAPI_URL string,REDIS_ADDR string) CatalogService {
+func NewCatalogServiceImpl(repo repositories.CatalogRepository, client *http.Client, omdbAPI_URL string, REDIS_ADDR string) CatalogService {
 	return &CatalogServiceImpl{
-		repo: repo,
-		client: client,
+		repo:        repo,
+		client:      client,
 		omdbAPI_URL: omdbAPI_URL,
-		REDIS_ADDR: REDIS_ADDR,
+		REDIS_ADDR:  REDIS_ADDR,
 	}
 }
-
 
 // 1. Fetch movies metadata from external API (e.g., OMDb)
 func (serv *CatalogServiceImpl) FetchMoviesMetaData(title string) (*models.OMDbResponse, error) {
 
 	apikey_url := serv.omdbAPI_URL
-	title,year := serv.ConcatenateTitleAndYear(title)
-	url := fmt.Sprintf("%s&t=%s",apikey_url,url.QueryEscape(title)) //url.QueryEscape("hello world") // Returns "hello+world"   
+	title, year := serv.ConcatenateTitleAndYear(title)
+	url := fmt.Sprintf("%s&t=%s", apikey_url, url.QueryEscape(title)) //url.QueryEscape("hello world") // Returns "hello+world"
 	if year != "" {
 		url += fmt.Sprintf("&y=%s", year)
 	}
-	res,err:=serv.client.Get(url)
-	if err!=nil{
-		fmt.Printf("Error occured while retreiving the info from OMDB server %s",err)
-		return nil,err
+	res, err := serv.client.Get(url)
+	if err != nil {
+		fmt.Printf("Error occured while retreiving the info from OMDB server %s", err)
+		return nil, err
 	}
 	defer res.Body.Close()
 
@@ -67,8 +66,9 @@ func (serv *CatalogServiceImpl) FetchMoviesMetaData(title string) (*models.OMDbR
 
 	return &omdbResponse, nil
 }
+
 // 2. Concatenate title and year
-func (serv *CatalogServiceImpl) ConcatenateTitleAndYear(text string) (title string, year string)  {
+func (serv *CatalogServiceImpl) ConcatenateTitleAndYear(text string) (title string, year string) {
 	re := regexp.MustCompile(`^(.*)\s*\((\d{4})\)$`)
 	matches := re.FindStringSubmatch(strings.TrimSpace(text))
 	if len(matches) == 3 {
@@ -76,9 +76,10 @@ func (serv *CatalogServiceImpl) ConcatenateTitleAndYear(text string) (title stri
 	}
 	return strings.TrimSpace(text), ""
 }
-//3. Get movie by ID
+
+// 3. Get movie by ID
 func (serv *CatalogServiceImpl) GetMovieByID(id int) (*models.Item, error) {
-	item,err:=serv.repo.GetByID(id)
+	item, err := serv.repo.GetByID(id)
 	if err != nil {
 		return nil, err
 	}
@@ -90,12 +91,13 @@ func (serv *CatalogServiceImpl) GetMovieByID(id int) (*models.Item, error) {
 	}
 	return item, nil
 }
-//4. Get all movies
+
+// 4. Get all movies
 func (serv *CatalogServiceImpl) ListMovies(page, limit int) ([]models.Item, int64, error) {
-	if page < 1{
+	if page < 1 {
 		page = 1
 	}
-	if limit < 1 || limit > 100{
+	if limit < 1 || limit > 100 {
 		limit = 20
 	}
 	items, count, err := serv.repo.ListItems(page, limit)
@@ -104,20 +106,22 @@ func (serv *CatalogServiceImpl) ListMovies(page, limit int) ([]models.Item, int6
 	}
 	return items, count, nil
 }
-//5. Search movies 
-func(serv *CatalogServiceImpl)SearchMovies(query string, limit int) ([]models.Item, error){
-	if limit < 1 || limit > 50{
+
+// 5. Search movies
+func (serv *CatalogServiceImpl) SearchMovies(query string, limit int) ([]models.Item, error) {
+	if limit < 1 || limit > 50 {
 		limit = 20
 	}
-	items,err := serv.repo.SearchItems(query,limit)
+	items, err := serv.repo.SearchItems(query, limit)
 	if err != nil {
 		return nil, err
 	}
 	return items, nil
 }
-//6. Embed movie metadata
-func (serv *CatalogServiceImpl) EmbedMovieMetadata(itemID int, title string){
-	omdbData,err := serv.FetchMoviesMetaData(title)
+
+// 6. Embed movie metadata
+func (serv *CatalogServiceImpl) EmbedMovieMetadata(itemID int, title string) {
+	omdbData, err := serv.FetchMoviesMetaData(title)
 	if err != nil {
 		fmt.Printf("Error fetching metadata for item ID %d: %v\n", itemID, err)
 		return
@@ -127,64 +131,73 @@ func (serv *CatalogServiceImpl) EmbedMovieMetadata(itemID int, title string){
 		posterURL = ""
 	}
 	plot := omdbData.Plot
-	err = serv.repo.UpdatePosterAndPlot(itemID,posterURL,plot)
+	err = serv.repo.UpdatePosterAndPlot(itemID, posterURL, plot)
 	if err != nil {
 		fmt.Printf("Error updating metadata for item ID %d: %v\n", itemID, err)
-	}else{
+	} else {
 		fmt.Printf("Successfully updated metadata for item ID %d\n", itemID)
 	}
 }
-//7. Get User History
-func(serv *CatalogServiceImpl)GetUserHistory(userId int, limit int)([]models.Interaction, error){
-	if limit <= 0 || limit > 100{
+
+// 7. Get User History
+func (serv *CatalogServiceImpl) GetUserHistory(userId int, limit int) ([]models.Interaction, error) {
+	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
-	interaction,err:=serv.repo.GetByUserIDInteraction(userId,limit)
+	interaction, err := serv.repo.GetByUserIDInteraction(userId, limit)
 	if err != nil {
 		return nil, err
 	}
 	return interaction, nil
 }
-//8. Record User Interaction
-func(serv *CatalogServiceImpl)RecordUserInteraction(userId int,req *models.CreateInteractionRequest) error{
-	eventType :=req.EventType
-	if eventType == ""{
+
+// 8. Record User Interaction
+func (serv *CatalogServiceImpl) RecordUserInteraction(userId int, req *models.CreateInteractionRequest) error {
+	eventType := req.EventType
+	if eventType == "" {
 		eventType = "rating"
 	}
 
 	interaction := &models.Interaction{
-		UserID: userId,
-		ItemID: req.ItemID,
-		Rating: req.Rating,
+		UserID:    userId,
+		ItemID:    req.ItemID,
+		Rating:    req.Rating,
 		EventType: eventType,
 	}
 
-	err:=serv.repo.CreateInteraction(interaction)
+	err := serv.repo.CreateInteraction(interaction)
 	if err != nil {
 		fmt.Printf("Error recording interaction for user ID %d: %v\n", userId, err)
 		return err
 	}
+	if err := serv.InvalidateRecommendations(userId); err != nil {
+		fmt.Printf("Warning: failed to invalidate recommendations for user ID %d: %v\n", userId, err)
+	}
 	return nil
 }
-//9. //Inavalidate old recommendations based on new interactions from cache
-func(serv *CatalogServiceImpl)InvalidateRecommendations(userId int) error{
+
+// 9. //Inavalidate old recommendations based on new interactions from cache
+func (serv *CatalogServiceImpl) InvalidateRecommendations(userId int) error {
 	redis_url := serv.REDIS_ADDR
-	
-	ctx,cancel := context.WithTimeout(context.Background(),2*time.Second)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	pattern := fmt.Sprintf("recommendations:%d:*", userId)
-	rdb :=config.ConnectRedis(redis_url)
-	keys,err := rdb.Keys(ctx,pattern).Result()
+	pattern := fmt.Sprintf("recs:user:%d:*", userId)
+	rdb := config.ConnectRedis(redis_url)
+	if rdb == nil {
+		return fmt.Errorf("redis is unavailable")
+	}
+	keys, err := rdb.Keys(ctx, pattern).Result()
 	if err != nil {
 		fmt.Printf("Error fetching keys for user ID %d: %v\n", userId, err)
 		return err
 	}
-	err = rdb.Del(ctx,keys...).Err()
+	err = rdb.Del(ctx, keys...).Err()
 	if err != nil {
 		fmt.Printf("Error deleting keys for user ID %d: %v\n", userId, err)
 		return err
-	}else{
+	} else {
 		fmt.Printf("Successfully invalidated %d recommendations for user ID %d\n", len(keys), userId)
 	}
 	return nil

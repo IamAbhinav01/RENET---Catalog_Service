@@ -6,14 +6,14 @@ import (
 )
 
 func (r *Router) RegiserWithMovies(catalogService services.CatalogService) {
-    movies := r.Router.Group("/movies")
+	movies := r.Router.Group("/movies")
 
-    catalogController := &controller.CatalogController{
-        CatalogService: catalogService,
-    }
+	catalogController := &controller.CatalogController{
+		CatalogService: catalogService,
+	}
 
-    movies.GET("/:id", catalogController.GetMovie)
-    movies.GET("/", catalogController.ListMovies)
-    movies.GET("/search", catalogController.SearchMovies)
-   
+	movies.GET("/:id", catalogController.GetMovie)
+	movies.GET("/", catalogController.ListMovies)
+	movies.GET("/search", catalogController.SearchMovies)
+
 }
