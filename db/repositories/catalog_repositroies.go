@@ -9,6 +9,7 @@ import (
 
 type CatalogRepository interface {
 	GetByID(id int) (*models.Item, error)
+	GetByIDs(ids []int) ([]models.Item, error)
 	ListItems(page, limit int) ([]models.Item, int64, error)
 	SearchItems(query string, limit int) ([]models.Item, error)
 	UpdatePosterAndPlot(id int, posterURL, plot string) error
@@ -34,6 +35,16 @@ func (repo *CatalogRepositoryImpl) GetByID(id int) (*models.Item, error) {
 		return nil, err
 	}
 	return &item, nil
+}
+
+// 1b. Get items by multiple IDs
+func (repo *CatalogRepositoryImpl) GetByIDs(ids []int) ([]models.Item, error) {
+	var items []models.Item
+	if len(ids) == 0 {
+		return items, nil
+	}
+	err := repo.db.Where("id IN ?", ids).Find(&items).Error
+	return items, err
 }
 // 2. List items with pagination
 func (repo *CatalogRepositoryImpl) ListItems(page, limit int) ([]models.Item, int64, error) {

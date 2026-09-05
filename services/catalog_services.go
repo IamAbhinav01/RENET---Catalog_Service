@@ -7,17 +7,19 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
-	"renet-catalog/config"
 	"renet-catalog/db/repositories"
 	"renet-catalog/models"
 	"strings"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 type CatalogService interface {
 	ConcatenateTitleAndYear(text string) (title string, year string)
 	FetchMoviesMetaData(title string) (*models.OMDbResponse, error)
 	GetMovieByID(id int) (*models.Item, error)
+	GetMoviesByIDs(ids []int) ([]models.Item, error)
 	ListMovies(page, limit int) ([]models.Item, int64, error)
 	SearchMovies(query string, limit int) ([]models.Item, error)
 	EmbedMovieMetadata(itemID int, rawTitle string)
@@ -30,51 +32,79 @@ type CatalogServiceImpl struct {
 	repo        repositories.CatalogRepository
 	client      *http.Client
 	omdbAPI_URL string
-	REDIS_ADDR  string
+	rdb         *redis.Client
 }
 
-func NewCatalogServiceImpl(repo repositories.CatalogRepository, client *http.Client, omdbAPI_URL string, REDIS_ADDR string) CatalogService {
+func NewCatalogServiceImpl(repo repositories.CatalogRepository, client *http.Client, omdbAPI_URL string, rdb *redis.Client) CatalogService {
 	return &CatalogServiceImpl{
 		repo:        repo,
 		client:      client,
 		omdbAPI_URL: omdbAPI_URL,
-		REDIS_ADDR:  REDIS_ADDR,
+		rdb:         rdb,
 	}
 }
 
 // 1. Fetch movies metadata from external API (e.g., OMDb)
 func (serv *CatalogServiceImpl) FetchMoviesMetaData(title string) (*models.OMDbResponse, error) {
-
-	apikey_url := serv.omdbAPI_URL
-	title, year := serv.ConcatenateTitleAndYear(title)
-	url := fmt.Sprintf("%s&t=%s", apikey_url, url.QueryEscape(title)) //url.QueryEscape("hello world") // Returns "hello+world"
+	apikeyURL := serv.omdbAPI_URL
+	cleanTitle, year := serv.ConcatenateTitleAndYear(title)
+	reqURL := fmt.Sprintf("%s&t=%s", apikeyURL, url.QueryEscape(cleanTitle))
 	if year != "" {
-		url += fmt.Sprintf("&y=%s", year)
+		reqURL += fmt.Sprintf("&y=%s", year)
 	}
-	res, err := serv.client.Get(url)
+
+	res, err := serv.client.Get(reqURL)
 	if err != nil {
-		fmt.Printf("Error occured while retreiving the info from OMDB server %s", err)
+		fmt.Printf("Error occurred while retrieving info from OMDB server: %v\n", err)
 		return nil, err
 	}
 	defer res.Body.Close()
 
 	var omdbResponse models.OMDbResponse
 	if err := json.NewDecoder(res.Body).Decode(&omdbResponse); err != nil {
-		fmt.Printf("Error occured while decoding the response from OMDB server %s", err)
+		fmt.Printf("Error occurred while decoding response from OMDB server: %v\n", err)
 		return nil, err
+	}
+
+	if omdbResponse.Response == "False" {
+		return nil, fmt.Errorf("omdb: %s", omdbResponse.Error)
 	}
 
 	return &omdbResponse, nil
 }
 
-// 2. Concatenate title and year
+// 2. Concatenate title and year, normalizing MovieLens inverted articles
 func (serv *CatalogServiceImpl) ConcatenateTitleAndYear(text string) (title string, year string) {
-	re := regexp.MustCompile(`^(.*)\s*\((\d{4})\)$`)
-	matches := re.FindStringSubmatch(strings.TrimSpace(text))
+	text = strings.TrimSpace(text)
+	reYear := regexp.MustCompile(`^(.*?)\s*\((\d{4})\)$`)
+	matches := reYear.FindStringSubmatch(text)
 	if len(matches) == 3 {
-		return strings.TrimSpace(matches[1]), matches[2]
+		title = strings.TrimSpace(matches[1])
+		year = matches[2]
+	} else {
+		title = text
+		year = ""
 	}
-	return strings.TrimSpace(text), ""
+
+	// Remove secondary parenthetical info if any (e.g., "Postman, The (Postino, Il)" -> "Postman, The")
+	reAlt := regexp.MustCompile(`\s*\([^)]*\)$`)
+	cleaned := strings.TrimSpace(reAlt.ReplaceAllString(title, ""))
+	if cleaned != "" {
+		title = cleaned
+	}
+
+	// Normalize article inversion: ", The", ", A", ", An"
+	articles := []string{", The", ", the", ", A", ", a", ", An", ", an"}
+	for _, art := range articles {
+		if strings.HasSuffix(title, art) {
+			prefix := strings.TrimSpace(art[2:])
+			base := strings.TrimSpace(title[:len(title)-len(art)])
+			title = fmt.Sprintf("%s %s", prefix, base)
+			break
+		}
+	}
+
+	return title, year
 }
 
 // 3. Get movie by ID
@@ -86,10 +116,19 @@ func (serv *CatalogServiceImpl) GetMovieByID(id int) (*models.Item, error) {
 	if item == nil {
 		return nil, fmt.Errorf("movie %d not found", id)
 	}
-	if item.PosterURL == nil || *item.PosterURL == "" || *item.PosterURL == "N/A" {
+	// Trigger metadata enrichment if not yet enriched (PosterURL is nil)
+	if item.PosterURL == nil {
 		go serv.EmbedMovieMetadata(id, item.Title)
 	}
 	return item, nil
+}
+
+// 3b. Get movies by slice of IDs
+func (serv *CatalogServiceImpl) GetMoviesByIDs(ids []int) ([]models.Item, error) {
+	if len(ids) == 0 {
+		return []models.Item{}, nil
+	}
+	return serv.repo.GetByIDs(ids)
 }
 
 // 4. Get all movies
@@ -123,14 +162,18 @@ func (serv *CatalogServiceImpl) SearchMovies(query string, limit int) ([]models.
 func (serv *CatalogServiceImpl) EmbedMovieMetadata(itemID int, title string) {
 	omdbData, err := serv.FetchMoviesMetaData(title)
 	if err != nil {
-		fmt.Printf("Error fetching metadata for item ID %d: %v\n", itemID, err)
+		fmt.Printf("Notice: OMDb enrichment unavailable for item ID %d (%s): %v\n", itemID, title, err)
+		na := "N/A"
+		_ = serv.repo.UpdatePosterAndPlot(itemID, na, "")
 		return
 	}
+
 	posterURL := omdbData.Poster
-	if posterURL == "N/A" {
-		posterURL = ""
+	if posterURL == "" {
+		posterURL = "N/A"
 	}
 	plot := omdbData.Plot
+
 	err = serv.repo.UpdatePosterAndPlot(itemID, posterURL, plot)
 	if err != nil {
 		fmt.Printf("Error updating metadata for item ID %d: %v\n", itemID, err)
@@ -176,29 +219,32 @@ func (serv *CatalogServiceImpl) RecordUserInteraction(userId int, req *models.Cr
 	return nil
 }
 
-// 9. //Inavalidate old recommendations based on new interactions from cache
+// 9. Invalidate old recommendations based on new interactions from cache
 func (serv *CatalogServiceImpl) InvalidateRecommendations(userId int) error {
-	redis_url := serv.REDIS_ADDR
+	if serv.rdb == nil {
+		return nil
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	pattern := fmt.Sprintf("recs:user:%d:*", userId)
-	rdb := config.ConnectRedis(redis_url)
-	if rdb == nil {
-		return fmt.Errorf("redis is unavailable")
-	}
-	keys, err := rdb.Keys(ctx, pattern).Result()
+	keys, err := serv.rdb.Keys(ctx, pattern).Result()
 	if err != nil {
 		fmt.Printf("Error fetching keys for user ID %d: %v\n", userId, err)
 		return err
 	}
-	err = rdb.Del(ctx, keys...).Err()
+
+	if len(keys) == 0 {
+		return nil
+	}
+
+	err = serv.rdb.Del(ctx, keys...).Err()
 	if err != nil {
 		fmt.Printf("Error deleting keys for user ID %d: %v\n", userId, err)
 		return err
-	} else {
-		fmt.Printf("Successfully invalidated %d recommendations for user ID %d\n", len(keys), userId)
 	}
+
+	fmt.Printf("Successfully invalidated %d recommendation cache keys for user ID %d\n", len(keys), userId)
 	return nil
 }

@@ -27,6 +27,10 @@ type CreateInteractionRequest struct {
 	EventType string  `json:"event_type"`
 }
 
+type BatchMovieRequest struct {
+	IDs []int `json:"ids" binding:"required"`
+}
+
 type OMDbResponse struct {
 	Title    string `json:"Title"`
 	Year     string `json:"Year"`
