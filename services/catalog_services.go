@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"renet-catalog/db/repositories"
 	"renet-catalog/models"
 	"strings"
+	"time"
 )
 
 type CatalogService interface {
@@ -21,6 +23,7 @@ type CatalogService interface {
 	EmbedMovieMetadata(itemID int, rawTitle string)
 	GetUserHistory(userId int, limit int)([]models.Interaction, error)
 	RecordUserInteraction(userId int,req *models.CreateInteractionRequest) error
+	InvalidateRecommendations(userId int) error
 }
 
 type CatalogServiceImpl struct {
@@ -153,6 +156,29 @@ func(serv *CatalogServiceImpl)RecordUserInteraction(userId int,req *models.Creat
 	if err != nil {
 		fmt.Printf("Error recording interaction for user ID %d: %v\n", userId, err)
 		return err
+	}
+	return nil
+}
+//9. //Inavalidate old recommendations based on new interactions from cache
+func(serv *CatalogServiceImpl)InvalidateRecommendations(userId int) error{
+	redis_url := config.GetString("REDIS_ADDR")
+	
+	ctx,cancel := context.WithTimeout(context.Background(),2*time.Second)
+	defer cancel()
+
+	pattern := fmt.Sprintf("recommendations:%d:*", userId)
+	rdb :=config.ConnectRedis(redis_url)
+	keys,err := rdb.Keys(ctx,pattern).Result()
+	if err != nil {
+		fmt.Printf("Error fetching keys for user ID %d: %v\n", userId, err)
+		return err
+	}
+	err = rdb.Del(ctx,keys...).Err()
+	if err != nil {
+		fmt.Printf("Error deleting keys for user ID %d: %v\n", userId, err)
+		return err
+	}else{
+		fmt.Printf("Successfully invalidated %d recommendations for user ID %d\n", len(keys), userId)
 	}
 	return nil
 }

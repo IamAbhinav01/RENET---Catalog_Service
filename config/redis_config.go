@@ -8,7 +8,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func connectRedis(redis_url string){
+func ConnectRedis(redis_url string) *redis.Client{
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     redis_url,
 		Password: "", 
@@ -20,8 +20,9 @@ func connectRedis(redis_url string){
 
 	if err := rdb.Ping(ctx).Err();err!=nil{
 		fmt.Printf("Warning: Redis unavailable at %s (%v). Running without cache invalidation.", redis_url, err)
-		return
+		return nil
 	}
 	fmt.Println("Connected to Redis successfully.")
+	return rdb
 }
 	
