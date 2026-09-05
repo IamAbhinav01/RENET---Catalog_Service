@@ -4,28 +4,30 @@ import (
 	"net/http"
 	"renet-catalog/services"
 	"strconv"
+
+	"github.com/gin-gonic/gin"
 )
 
 type CatalogController struct {
 	CatalogService services.CatalogService
 }
 
-func (ctrl *CatalogController) GetMovie(w http.ResponseWriter, r *http.Request) {
+func (ctrl *CatalogController) GetMovie(c *gin.Context) {
 	
-	id := r.URL.Query().Get("id")
+	id := c.Param("id")
 	idInt, err := strconv.Atoi(id)
 	if err != nil {
-		http.Error(w, "Invalid movie ID", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid movie ID"})
 		return
 	}
 	if id == "" {
-		http.Error(w, "Missing movie ID", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing movie ID"})
 		return
 	}
 	movie,err := ctrl.CatalogService.GetMovieByID(idInt)
 	if err != nil {
-		http.Error(w, "Movie not found", http.StatusNotFound)
+		c.JSON(http.StatusNotFound, gin.H{"error": "Movie not found"})
 		return
 	}
-	
+	c.JSON(http.StatusOK, movie)
 }
