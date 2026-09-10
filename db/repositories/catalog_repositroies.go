@@ -13,6 +13,9 @@ type CatalogRepository interface {
 	ListItems(page, limit int) ([]models.Item, int64, error)
 	SearchItems(query string, limit int) ([]models.Item, error)
 	UpdatePosterAndPlot(id int, posterURL, plot string) error
+	CreateItem(item *models.Item) error
+	GetMaxItemID() (int, error)
+	ItemExistsByTitle(title string) (bool, error)
 	CreateInteraction(*models.Interaction) error
 	GetByUserIDInteraction(userID, limit int) ([]models.Interaction, error)
 }
@@ -92,3 +95,23 @@ func(repo *CatalogRepositoryImpl)GetByUserIDInteraction(userID, limit int) ([]mo
 		Find(&list).Error
 	return list, err
 }
+
+// 7. Create new item
+func (repo *CatalogRepositoryImpl) CreateItem(item *models.Item) error {
+	return repo.db.Create(item).Error
+}
+
+// 8. Get maximum existing item ID
+func (repo *CatalogRepositoryImpl) GetMaxItemID() (int, error) {
+	var maxID int
+	err := repo.db.Model(&models.Item{}).Select("COALESCE(MAX(id), 0)").Scan(&maxID).Error
+	return maxID, err
+}
+
+// 9. Check if item exists by title (case-insensitive)
+func (repo *CatalogRepositoryImpl) ItemExistsByTitle(title string) (bool, error) {
+	var count int64
+	err := repo.db.Model(&models.Item{}).Where("LOWER(title) = LOWER(?)", title).Count(&count).Error
+	return count > 0, err
+}
+

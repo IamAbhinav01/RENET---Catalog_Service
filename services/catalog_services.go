@@ -23,6 +23,7 @@ type CatalogService interface {
 	ListMovies(page, limit int) ([]models.Item, int64, error)
 	SearchMovies(query string, limit int) ([]models.Item, error)
 	EmbedMovieMetadata(itemID int, rawTitle string)
+	DiscoverAndIngestIndianMovies(years []int) (int, error)
 	GetUserHistory(userId int, limit int) ([]models.Interaction, error)
 	RecordUserInteraction(userId int, req *models.CreateInteractionRequest) error
 	InvalidateRecommendations(userId int) error

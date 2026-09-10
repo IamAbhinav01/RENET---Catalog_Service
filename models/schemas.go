@@ -39,3 +39,29 @@ type OMDbResponse struct {
 	Response string `json:"Response"`
 	Error    string `json:"Error"`
 }
+
+type OMDbSearchResponse struct {
+	Search   []OMDbSearchItem `json:"Search"`
+	Response string           `json:"Response"`
+	Error    string           `json:"Error"`
+}
+
+type OMDbSearchItem struct {
+	Title  string `json:"Title"`
+	Year   string `json:"Year"`
+	ImdbID string `json:"imdbID"`
+	Type   string `json:"Type"`
+	Poster string `json:"Poster"`
+}
+
+type OMDbDetailResponse struct {
+	Title    string `json:"Title"`
+	Year     string `json:"Year"`
+	Genre    string `json:"Genre"`
+	Plot     string `json:"Plot"`
+	Poster   string `json:"Poster"`
+	Country  string `json:"Country"`
+	Language string `json:"Language"`
+	Response string `json:"Response"`
+	Error    string `json:"Error"`
+}
