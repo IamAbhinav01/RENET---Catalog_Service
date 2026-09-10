@@ -32,22 +32,22 @@ type CatalogService interface {
 type CatalogServiceImpl struct {
 	repo        repositories.CatalogRepository
 	client      *http.Client
-	omdbAPI_URL string
+	omdbAPIKey  string
 	rdb         *redis.Client
 }
 
-func NewCatalogServiceImpl(repo repositories.CatalogRepository, client *http.Client, omdbAPI_URL string, rdb *redis.Client) CatalogService {
+func NewCatalogServiceImpl(repo repositories.CatalogRepository, client *http.Client, omdbAPIKey string, rdb *redis.Client) CatalogService {
 	return &CatalogServiceImpl{
 		repo:        repo,
 		client:      client,
-		omdbAPI_URL: omdbAPI_URL,
+		omdbAPIKey:  omdbAPIKey,
 		rdb:         rdb,
 	}
 }
 
 // 1. Fetch movies metadata from external API (e.g., OMDb)
 func (serv *CatalogServiceImpl) FetchMoviesMetaData(title string) (*models.OMDbResponse, error) {
-	apikeyURL := serv.omdbAPI_URL
+	apikeyURL := fmt.Sprintf("https://www.omdbapi.com/?apikey=%s", url.QueryEscape(serv.omdbAPIKey))
 	cleanTitle, year := serv.ConcatenateTitleAndYear(title)
 	reqURL := fmt.Sprintf("%s&t=%s", apikeyURL, url.QueryEscape(cleanTitle))
 	if year != "" {
@@ -194,8 +194,8 @@ func (serv *CatalogServiceImpl) EmbedMovieMetadata(itemID int, title string) {
 //  4. Dedup: skip movies already present in PostgreSQL by title
 //  5. Insert into `items` with pipe-separated genres and a bootstrap interaction (rating=3.0)
 //
-// All OMDb communication uses serv.omdbAPI_URL which is populated from the
-// OMDB_API_KEY environment variable — no API key is ever hardcoded here.
+// All OMDb communication uses serv.omdbAPIKey from the OMDB_API_KEY environment
+// variable — no API key is ever hardcoded here.
 func (serv *CatalogServiceImpl) DiscoverAndIngestIndianMovies(years []int) (int, error) {
 	// Regional language keywords used as search terms — no hardcoded movie names.
 	// OMDb's &s= search is keyword-based, so these surface language-tagged entries.
@@ -215,8 +215,8 @@ func (serv *CatalogServiceImpl) DiscoverAndIngestIndianMovies(years []int) (int,
 
 			// ────── Step 1: OMDb search (returns up to 10 results per page) ──────
 			searchURL := fmt.Sprintf(
-				"%s&s=%s&y=%d&type=movie&page=1",
-				serv.omdbAPI_URL,
+				"https://www.omdbapi.com/?apikey=%s&s=%s&y=%d&type=movie&page=1",
+				url.QueryEscape(serv.omdbAPIKey),
 				url.QueryEscape(lang),
 				year,
 			)
@@ -246,7 +246,7 @@ func (serv *CatalogServiceImpl) DiscoverAndIngestIndianMovies(years []int) (int,
 					continue
 				}
 
-				detailURL := fmt.Sprintf("%s&i=%s&plot=full", serv.omdbAPI_URL, candidate.ImdbID)
+				detailURL := fmt.Sprintf("https://www.omdbapi.com/?apikey=%s&i=%s&plot=full", url.QueryEscape(serv.omdbAPIKey), candidate.ImdbID)
 				detRes, detErr := serv.client.Get(detailURL)
 				if detErr != nil {
 					fmt.Printf("[ingest] Warning: detail fetch failed for %s: %v\n", candidate.ImdbID, detErr)

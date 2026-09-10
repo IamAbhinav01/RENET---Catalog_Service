@@ -61,22 +61,26 @@ The Catalog Service sits at the core of the ReNet platform between frontend clie
 ## System Role & Responsibilities
 
 ### 1. Movie Catalog & Batch Hydration
+
 - **Paginated Listings & Case-Insensitive Search**: Fast indexed queries over 9,700+ movies via PostgreSQL and GORM.
 - **Batch Movie Lookup (`POST /api/movies/batch`)**: Hydrates multiple recommendation candidate IDs in a single roundtrip, eliminating $N+1$ HTTP queries from clients.
 
 ### 2. Lazy Metadata Enrichment with Article Normalization
+
 - **Lazy Hydration**: When a movie is first accessed without poster or plot information, the service triggers an asynchronous background goroutine to query the OMDb API and persist the metadata to PostgreSQL. Subsequent reads are served directly from PostgreSQL at sub-millisecond speeds.
 - **MovieLens Title Normalization**: Converts inverted MovieLens titles (e.g., `"Shawshank Redemption, The"` $\to$ `"The Shawshank Redemption"`, `"Lion King, The"` $\to$ `"The Lion King"`, `"Postman, The (Postino, Il)"` $\to$ `"The Postman"`) to ensure accurate OMDb match rates.
 - **Infinite Loop Protection**: Identifies negative responses (`Response: "False"`) or missing posters and persists a sentinel (`"N/A"`) to prevent re-query loops on every read.
 - **Dedicated HTTP Timeout**: Utilizes a pooled HTTP client with an explicit 5-second timeout to protect upstream thread availability.
 
 ### 3. Interaction Ingestion & Cache Invalidation Orchestrator
+
 - **Interaction Storage**: Appends ratings and watch history to the PostgreSQL `interactions` table.
 - **Real-Time Cache Synchronization**: Automatically detects and deletes the user's cached recommendation keys in Redis (`recs:user:<user_id>:*`).
 - **Resilient Empty-Key Guard**: Safely inspects key length before issuing Redis `DEL` commands, eliminating empty argument errors.
 - **Connection Pooling**: Utilizes a persistent singleton Redis client with connection pooling (`PoolSize: 10`, `MinIdleConns: 2`) across the application lifecycle.
 
 ### 4. Cross-Cutting Utilities
+
 - **CORS Middleware**: Pre-configured for web/mobile frontends with automatic preflight `OPTIONS` handling (HTTP 204 No Content).
 - **Flexible Auth Context**: Non-blocking `X-User-ID` header extraction with fallback to user `1` for test setups.
 - **Health Probes**: `/health` and `/api/health` endpoints returning service status and UTC timestamp.
@@ -136,12 +140,12 @@ Renet_CataLog_Service/
 
 Configure the following variables in your `.env` file or export them into the environment:
 
-| Variable | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `PORT` | `string` | `3000` | Port on which the HTTP server listens (e.g. `3000` or `:3000`) |
-| `DB_URL` | `string` | *Required* | PostgreSQL connection string (`postgresql://user:pass@host:5432/dbname?sslmode=disable`) |
-| `REDIS_ADDR` | `string` | `localhost:6379` | Host and port of the Redis cache instance |
-| `OMDB_API_KEY` | `string` | *Required* | OMDb API base URL with API key (e.g. `https://www.omdbapi.com/?apikey=YOUR_KEY`) |
+| Variable       | Type     | Default          | Description                                                                              |
+| :------------- | :------- | :--------------- | :--------------------------------------------------------------------------------------- |
+| `PORT`         | `string` | `3000`           | Port on which the HTTP server listens (e.g. `3000` or `:3000`)                           |
+| `DB_URL`       | `string` | _Required_       | PostgreSQL connection string (`postgresql://user:pass@host:5432/dbname?sslmode=disable`) |
+| `REDIS_ADDR`   | `string` | `localhost:6379` | Host and port of the Redis cache instance                                                |
+| `OMDB_API_KEY` | `string` | _Required_       | OMDb API key (e.g. `YOUR_KEY`)                                                           |
 
 ---
 
@@ -152,9 +156,11 @@ All primary endpoints are prefixed with `/api`. Root paths (e.g., `/movies`, `/h
 ### Health Probes
 
 #### `GET /api/health` or `GET /health`
+
 Returns service health status and current UTC server time.
 
 **Response (`200 OK`)**:
+
 ```json
 {
   "service": "renet-catalog",
@@ -168,13 +174,16 @@ Returns service health status and current UTC server time.
 ### Movie Catalog
 
 #### `GET /api/movies`
+
 Returns a paginated list of movies. Supports both `/api/movies` and `/api/movies/`.
 
 **Query Parameters**:
-- `page` *(optional, int)*: Page number (default: `1`).
-- `limit` *(optional, int)*: Items per page (default: `10`, max: `100`).
+
+- `page` _(optional, int)_: Page number (default: `1`).
+- `limit` _(optional, int)_: Items per page (default: `10`, max: `100`).
 
 **Response (`200 OK`)**:
+
 ```json
 {
   "data": [
@@ -196,12 +205,15 @@ Returns a paginated list of movies. Supports both `/api/movies` and `/api/movies
 ---
 
 #### `GET /api/movies/:id`
+
 Retrieves details for a single movie. If `poster_url` is unpopulated, asynchronously triggers OMDb metadata enrichment.
 
 **Parameters**:
-- `id` *(path, int)*: Movie ID.
+
+- `id` _(path, int)_: Movie ID.
 
 **Response (`200 OK`)**:
+
 ```json
 {
   "id": 364,
@@ -216,9 +228,11 @@ Retrieves details for a single movie. If `poster_url` is unpopulated, asynchrono
 ---
 
 #### `POST /api/movies/batch`
+
 Batch-hydrates multiple movies in a single query. Ideal for recommendation list enrichment.
 
 **Request Body**:
+
 ```json
 {
   "ids": [1, 2, 364]
@@ -226,6 +240,7 @@ Batch-hydrates multiple movies in a single query. Ideal for recommendation list 
 ```
 
 **Response (`200 OK`)**:
+
 ```json
 {
   "count": 3,
@@ -261,13 +276,16 @@ Batch-hydrates multiple movies in a single query. Ideal for recommendation list 
 ---
 
 #### `GET /api/movies/search`
+
 Searches movies by title (case-insensitive substring match).
 
 **Query Parameters**:
-- `q` *(required, string)*: Search keyword.
-- `limit` *(optional, int)*: Maximum results (default: `20`, max: `50`).
+
+- `q` _(required, string)_: Search keyword.
+- `limit` _(optional, int)_: Maximum results (default: `20`, max: `50`).
 
 **Example Request**:
+
 ```http
 GET /api/movies/search?q=toy&limit=5
 ```
@@ -277,12 +295,15 @@ GET /api/movies/search?q=toy&limit=5
 ### User History & Interactions
 
 #### `POST /api/history`
+
 Records a user rating or watch interaction, and invalidates the user's recommendation cache in Redis (`recs:user:<user_id>:*`).
 
 **Headers**:
-- `X-User-ID` *(optional, int)*: ID of the interacting user (defaults to `1` in test environments).
+
+- `X-User-ID` _(optional, int)_: ID of the interacting user (defaults to `1` in test environments).
 
 **Request Body**:
+
 ```json
 {
   "item_id": 364,
@@ -292,6 +313,7 @@ Records a user rating or watch interaction, and invalidates the user's recommend
 ```
 
 **Response (`201 Created`)**:
+
 ```json
 {
   "message": "Interaction recorded successfully"
@@ -301,15 +323,19 @@ Records a user rating or watch interaction, and invalidates the user's recommend
 ---
 
 #### `GET /api/history`
+
 Retrieves interaction history for the authenticated user, ordered from most recent to oldest.
 
 **Headers**:
-- `X-User-ID` *(optional, int)*: User ID (defaults to `1`).
+
+- `X-User-ID` _(optional, int)_: User ID (defaults to `1`).
 
 **Query Parameters**:
-- `limit` *(optional, int)*: Maximum interactions to retrieve (default: `50`, max: `100`).
+
+- `limit` _(optional, int)_: Maximum interactions to retrieve (default: `50`, max: `100`).
 
 **Response (`200 OK`)**:
+
 ```json
 {
   "limit": 50,
@@ -331,40 +357,49 @@ Retrieves interaction history for the authenticated user, ordered from most rece
 ## Local Development & Setup
 
 ### Prerequisites
+
 - **Go 1.21+** installed
 - **PostgreSQL 14+** running with the MovieLens database seeded (`renet`)
 - **Redis 6+** running on `localhost:6379`
 - Active **OMDb API Key**
 
 ### 1. Installation
+
 Clone the repository and install dependencies:
+
 ```bash
 cd Renet_CataLog_Service
 go mod download
 ```
 
 ### 2. Configure Environment
+
 Ensure `.env` contains your database and cache credentials:
+
 ```env
 PORT=3000
 DB_URL=postgresql://user:pass@localhost:5432/renet?sslmode=disable
 REDIS_ADDR=localhost:6379
-OMDB_API_KEY=https://www.omdbapi.com/?apikey=YOUR_OMDB_KEY
+OMDB_API_KEY=YOUR_OMDB_KEY
 ```
 
 ### 3. Run Service
+
 Run directly using the Go toolchain:
+
 ```bash
 go run main.go
 ```
 
 Or build the optimized binary:
+
 ```bash
 go build -o renet-catalog.exe .
 ./renet-catalog.exe
 ```
 
 For live reloading during development:
+
 ```bash
 air
 ```
@@ -374,12 +409,15 @@ air
 ## Testing & Verification
 
 ### Running Unit Tests
+
 Execute unit tests for title parsing and article inversion normalization:
+
 ```bash
 go test -v ./services
 ```
 
 ### Running PowerShell Integration Suites
+
 Interactive test scripts are located under the `api/` directory:
 
 ```powershell
