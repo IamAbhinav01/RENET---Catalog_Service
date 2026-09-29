@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"renet-catalog/db/repositories"
 	"renet-catalog/models"
@@ -156,6 +157,108 @@ func (serv *CatalogServiceImpl) SearchMovies(query string, limit int) ([]models.
 	if err != nil {
 		return nil, err
 	}
+	
+	// If local search returns nothing, fall back to OMDb live search and ingest on the fly
+	if len(items) == 0 && serv.omdbAPIKey != "" {
+		fmt.Printf("[search] No local results for %q, falling back to OMDb...\n", query)
+		searchURL := fmt.Sprintf("https://www.omdbapi.com/?apikey=%s&s=%s&type=movie&page=1", url.QueryEscape(serv.omdbAPIKey), url.QueryEscape(query))
+		res, err := serv.client.Get(searchURL)
+		if err == nil {
+			defer res.Body.Close()
+			var searchResp models.OMDbSearchResponse
+			if json.NewDecoder(res.Body).Decode(&searchResp) == nil && searchResp.Response == "True" && len(searchResp.Search) > 0 {
+				
+				for _, candidate := range searchResp.Search {
+					if candidate.ImdbID == "" {
+						continue
+					}
+					
+					// Fetch detailed information
+					detailURL := fmt.Sprintf("https://www.omdbapi.com/?apikey=%s&i=%s&plot=full", url.QueryEscape(serv.omdbAPIKey), candidate.ImdbID)
+					detRes, detErr := serv.client.Get(detailURL)
+					if detErr != nil {
+						continue
+					}
+					
+					var detail models.OMDbDetailResponse
+					decErr := json.NewDecoder(detRes.Body).Decode(&detail)
+					detRes.Body.Close()
+					if decErr != nil || detail.Response != "True" {
+						continue
+					}
+					
+					// Dedup by title
+					exists, chkErr := serv.repo.ItemExistsByTitle(detail.Title)
+					if chkErr == nil && !exists {
+						rawGenres := strings.TrimSpace(detail.Genre)
+						genres := strings.ReplaceAll(rawGenres, ", ", "|")
+						if genres == "" || genres == "N/A" {
+							genres = "Unknown"
+						}
+						primaryGenre := strings.SplitN(genres, "|", 2)[0]
+						
+						var posterPtr *string
+						if detail.Poster != "" && detail.Poster != "N/A" {
+							p := detail.Poster
+							posterPtr = &p
+						}
+						
+						var plotPtr *string
+						if detail.Plot != "" && detail.Plot != "N/A" {
+							p := detail.Plot
+							plotPtr = &p
+						}
+						
+						maxID, _ := serv.repo.GetMaxItemID()
+						newID := maxID + 1
+						
+						item := &models.Item{
+							ID:           newID,
+							Title:        detail.Title,
+							Genres:       genres,
+							PrimaryGenre: primaryGenre,
+							PosterURL:    posterPtr,
+							Plot:         plotPtr,
+						}
+						
+						if createErr := serv.repo.CreateItem(item); createErr == nil {
+							// Also add bootstrap interaction to index it
+							bootstrapInteraction := &models.Interaction{
+								UserID:    1,
+								ItemID:    newID,
+								Rating:    3.0,
+								EventType: "system_ingest",
+							}
+							_ = serv.repo.CreateInteraction(bootstrapInteraction)
+							
+							// Append to movies.csv
+							go func(id int, title, g string) {
+								csvLine := fmt.Sprintf("\n%d,\"%s\",%s", id, strings.ReplaceAll(title, "\"", "\"\""), g)
+								f, err := os.OpenFile("A:/ReNet/ReNet_Recommendation/app/dataset/ml-latest-small/movies.csv", os.O_APPEND|os.O_WRONLY, 0644)
+								if err == nil {
+									f.WriteString(csvLine)
+									f.Close()
+								} else {
+									fmt.Printf("Failed to append to movies.csv: %v\n", err)
+								}
+							}(newID, detail.Title, genres)
+
+							fmt.Printf("[search] ✅ On-the-fly Ingested: %q (id=%d)\n", detail.Title, newID)
+							items = append(items, *item)
+						}
+					}
+					
+					// If we've ingested a few from OMDb, return them immediately
+					if len(items) >= limit || len(items) >= 5 {
+						break
+					}
+					
+					time.Sleep(100 * time.Millisecond) // limit rate
+				}
+			}
+		}
+	}
+
 	return items, nil
 }
 

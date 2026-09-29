@@ -1,2 +1,6 @@
 architecture_build_setup.md
 .env
+Renet_CataLog_Service\renet-catalog.exe
+Renet_CataLog_Service/renet-catalog.exe
+Renet_CataLog_Service\services\catalog_services_test.go
+Renet_CataLog_Service/services/catalog_services_test.go
