@@ -17,6 +17,7 @@ func (r *Router) RegisterWithMovies(catalogService services.CatalogService) {
 		group.GET("/", catalogController.ListMovies)
 		group.GET("/search", catalogController.SearchMovies)
 		group.POST("/batch", catalogController.BatchGetMovies)
+		group.GET("/:id/details", catalogController.GetMovieDetails)
 		group.GET("/:id", catalogController.GetMovie)
 	}
 

@@ -2,15 +2,19 @@ package services
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"renet-catalog/db/repositories"
 	"renet-catalog/models"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -20,6 +24,7 @@ type CatalogService interface {
 	ConcatenateTitleAndYear(text string) (title string, year string)
 	FetchMoviesMetaData(title string) (*models.OMDbResponse, error)
 	GetMovieByID(id int) (*models.Item, error)
+	GetMovieDetails(id int) (*models.OMDbResponse, error)
 	GetMoviesByIDs(ids []int) ([]models.Item, error)
 	ListMovies(page, limit int) ([]models.Item, int64, error)
 	SearchMovies(query string, limit int) ([]models.Item, error)
@@ -31,19 +36,73 @@ type CatalogService interface {
 }
 
 type CatalogServiceImpl struct {
-	repo        repositories.CatalogRepository
-	client      *http.Client
-	omdbAPIKey  string
-	rdb         *redis.Client
+	repo         repositories.CatalogRepository
+	client       *http.Client
+	omdbAPIKey   string
+	rdb          *redis.Client
+	enrichmentMu sync.Mutex
+	enriching    map[int]struct{}
 }
 
 func NewCatalogServiceImpl(repo repositories.CatalogRepository, client *http.Client, omdbAPIKey string, rdb *redis.Client) CatalogService {
 	return &CatalogServiceImpl{
-		repo:        repo,
-		client:      client,
-		omdbAPIKey:  omdbAPIKey,
-		rdb:         rdb,
+		repo:       repo,
+		client:     client,
+		omdbAPIKey: omdbAPIKey,
+		rdb:        rdb,
+		enriching:  make(map[int]struct{}),
 	}
+}
+
+var trainingCSVWriteMu sync.Mutex
+
+func appendMovieToTrainingCSV(id int, title, genres string) error {
+	path := strings.TrimSpace(os.Getenv("MOVIES_CSV_PATH"))
+	if path == "" {
+		path = filepath.Join("..", "ReNet_Recommendation", "app", "dataset", "ml-latest-small", "movies.csv")
+	}
+
+	trainingCSVWriteMu.Lock()
+	defer trainingCSVWriteMu.Unlock()
+
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	writer := csv.NewWriter(file)
+	if err := writer.Write([]string{strconv.Itoa(id), title, genres}); err != nil {
+		return err
+	}
+	writer.Flush()
+	return writer.Error()
+}
+
+func (serv *CatalogServiceImpl) scheduleMetadataEnrichment(itemID int, title string) {
+	if serv.omdbAPIKey == "" {
+		return
+	}
+
+	serv.enrichmentMu.Lock()
+	if serv.enriching == nil {
+		serv.enriching = make(map[int]struct{})
+	}
+	if _, exists := serv.enriching[itemID]; exists {
+		serv.enrichmentMu.Unlock()
+		return
+	}
+	serv.enriching[itemID] = struct{}{}
+	serv.enrichmentMu.Unlock()
+
+	go func() {
+		defer func() {
+			serv.enrichmentMu.Lock()
+			delete(serv.enriching, itemID)
+			serv.enrichmentMu.Unlock()
+		}()
+		serv.EmbedMovieMetadata(itemID, title)
+	}()
 }
 
 // 1. Fetch movies metadata from external API (e.g., OMDb)
@@ -120,9 +179,31 @@ func (serv *CatalogServiceImpl) GetMovieByID(id int) (*models.Item, error) {
 	}
 	// Trigger metadata enrichment if not yet enriched (PosterURL is nil)
 	if item.PosterURL == nil {
-		go serv.EmbedMovieMetadata(id, item.Title)
+		serv.scheduleMetadataEnrichment(id, item.Title)
 	}
 	return item, nil
+}
+
+func (serv *CatalogServiceImpl) GetMovieDetails(id int) (*models.OMDbResponse, error) {
+	item, err := serv.repo.GetByID(id)
+	if err != nil {
+		return nil, err
+	}
+	if item == nil {
+		return nil, fmt.Errorf("movie %d not found", id)
+	}
+	details, err := serv.FetchMoviesMetaData(item.Title)
+	if err != nil {
+		return nil, err
+	}
+	posterURL := details.Poster
+	if posterURL == "" {
+		posterURL = "N/A"
+	}
+	if err := serv.repo.UpdatePosterAndPlot(id, posterURL, details.Plot); err != nil {
+		fmt.Printf("Failed to cache OMDb metadata for movie ID %d: %v\n", id, err)
+	}
+	return details, nil
 }
 
 // 3b. Get movies by slice of IDs
@@ -145,6 +226,13 @@ func (serv *CatalogServiceImpl) ListMovies(page, limit int) ([]models.Item, int6
 	if err != nil {
 		return nil, 0, err
 	}
+	if page == 1 {
+		for _, item := range items {
+			if item.PosterURL == nil || strings.TrimSpace(*item.PosterURL) == "" {
+				serv.scheduleMetadataEnrichment(item.ID, item.Title)
+			}
+		}
+	}
 	return items, count, nil
 }
 
@@ -157,7 +245,7 @@ func (serv *CatalogServiceImpl) SearchMovies(query string, limit int) ([]models.
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// If local search returns nothing, fall back to OMDb live search and ingest on the fly
 	if len(items) == 0 && serv.omdbAPIKey != "" {
 		fmt.Printf("[search] No local results for %q, falling back to OMDb...\n", query)
@@ -167,26 +255,26 @@ func (serv *CatalogServiceImpl) SearchMovies(query string, limit int) ([]models.
 			defer res.Body.Close()
 			var searchResp models.OMDbSearchResponse
 			if json.NewDecoder(res.Body).Decode(&searchResp) == nil && searchResp.Response == "True" && len(searchResp.Search) > 0 {
-				
+
 				for _, candidate := range searchResp.Search {
 					if candidate.ImdbID == "" {
 						continue
 					}
-					
+
 					// Fetch detailed information
 					detailURL := fmt.Sprintf("https://www.omdbapi.com/?apikey=%s&i=%s&plot=full", url.QueryEscape(serv.omdbAPIKey), candidate.ImdbID)
 					detRes, detErr := serv.client.Get(detailURL)
 					if detErr != nil {
 						continue
 					}
-					
+
 					var detail models.OMDbDetailResponse
 					decErr := json.NewDecoder(detRes.Body).Decode(&detail)
 					detRes.Body.Close()
 					if decErr != nil || detail.Response != "True" {
 						continue
 					}
-					
+
 					// Dedup by title
 					exists, chkErr := serv.repo.ItemExistsByTitle(detail.Title)
 					if chkErr == nil && !exists {
@@ -196,22 +284,22 @@ func (serv *CatalogServiceImpl) SearchMovies(query string, limit int) ([]models.
 							genres = "Unknown"
 						}
 						primaryGenre := strings.SplitN(genres, "|", 2)[0]
-						
+
 						var posterPtr *string
 						if detail.Poster != "" && detail.Poster != "N/A" {
 							p := detail.Poster
 							posterPtr = &p
 						}
-						
+
 						var plotPtr *string
 						if detail.Plot != "" && detail.Plot != "N/A" {
 							p := detail.Plot
 							plotPtr = &p
 						}
-						
+
 						maxID, _ := serv.repo.GetMaxItemID()
 						newID := maxID + 1
-						
+
 						item := &models.Item{
 							ID:           newID,
 							Title:        detail.Title,
@@ -220,7 +308,7 @@ func (serv *CatalogServiceImpl) SearchMovies(query string, limit int) ([]models.
 							PosterURL:    posterPtr,
 							Plot:         plotPtr,
 						}
-						
+
 						if createErr := serv.repo.CreateItem(item); createErr == nil {
 							// Also add bootstrap interaction to index it
 							bootstrapInteraction := &models.Interaction{
@@ -230,29 +318,21 @@ func (serv *CatalogServiceImpl) SearchMovies(query string, limit int) ([]models.
 								EventType: "system_ingest",
 							}
 							_ = serv.repo.CreateInteraction(bootstrapInteraction)
-							
-							// Append to movies.csv
-							go func(id int, title, g string) {
-								csvLine := fmt.Sprintf("\n%d,\"%s\",%s", id, strings.ReplaceAll(title, "\"", "\"\""), g)
-								f, err := os.OpenFile("A:/ReNet/ReNet_Recommendation/app/dataset/ml-latest-small/movies.csv", os.O_APPEND|os.O_WRONLY, 0644)
-								if err == nil {
-									f.WriteString(csvLine)
-									f.Close()
-								} else {
-									fmt.Printf("Failed to append to movies.csv: %v\n", err)
-								}
-							}(newID, detail.Title, genres)
+
+							if err := appendMovieToTrainingCSV(newID, detail.Title, genres); err != nil {
+								fmt.Printf("Failed to append movie to training CSV: %v\n", err)
+							}
 
 							fmt.Printf("[search] ✅ On-the-fly Ingested: %q (id=%d)\n", detail.Title, newID)
 							items = append(items, *item)
 						}
 					}
-					
+
 					// If we've ingested a few from OMDb, return them immediately
 					if len(items) >= limit || len(items) >= 5 {
 						break
 					}
-					
+
 					time.Sleep(100 * time.Millisecond) // limit rate
 				}
 			}
@@ -426,6 +506,9 @@ func (serv *CatalogServiceImpl) DiscoverAndIngestIndianMovies(years []int) (int,
 					fmt.Printf("[ingest] Warning: failed to insert %q: %v\n", detail.Title, createErr)
 					continue
 				}
+				if csvErr := appendMovieToTrainingCSV(newID, detail.Title, genres); csvErr != nil {
+					fmt.Printf("[ingest] Warning: failed to append %q to movies.csv: %v\n", detail.Title, csvErr)
+				}
 
 				// Bootstrap interaction so the item participates in future ALS training.
 				// We use a synthetic user_id=1 with a neutral rating=3.0.
@@ -521,4 +604,3 @@ func (serv *CatalogServiceImpl) InvalidateRecommendations(userId int) error {
 	fmt.Printf("Successfully invalidated %d recommendation cache keys for user ID %d\n", len(keys), userId)
 	return nil
 }
-

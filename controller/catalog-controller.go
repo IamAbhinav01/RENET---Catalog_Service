@@ -38,6 +38,21 @@ func (ctrl *CatalogController) GetMovie(c *gin.Context) {
 	c.JSON(http.StatusOK, movie)
 }
 
+func (ctrl *CatalogController) GetMovieDetails(c *gin.Context) {
+	idInt, err := strconv.Atoi(c.Param("id"))
+	if err != nil || idInt <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid movie ID"})
+		return
+	}
+
+	details, err := ctrl.CatalogService.GetMovieDetails(idInt)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Unable to load movie details from OMDb"})
+		return
+	}
+	c.JSON(http.StatusOK, details)
+}
+
 func (ctrl *CatalogController) BatchGetMovies(c *gin.Context) {
 	var req models.BatchMovieRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

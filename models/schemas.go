@@ -32,12 +32,23 @@ type BatchMovieRequest struct {
 }
 
 type OMDbResponse struct {
-	Title    string `json:"Title"`
-	Year     string `json:"Year"`
-	Plot     string `json:"Plot"`
-	Poster   string `json:"Poster"`
-	Response string `json:"Response"`
-	Error    string `json:"Error"`
+	Title      string `json:"Title"`
+	Year       string `json:"Year"`
+	Rated      string `json:"Rated"`
+	Released   string `json:"Released"`
+	Runtime    string `json:"Runtime"`
+	Genre      string `json:"Genre"`
+	Director   string `json:"Director"`
+	Writer     string `json:"Writer"`
+	Actors     string `json:"Actors"`
+	Plot       string `json:"Plot"`
+	Language   string `json:"Language"`
+	Country    string `json:"Country"`
+	Awards     string `json:"Awards"`
+	Poster     string `json:"Poster"`
+	IMDBRating string `json:"imdbRating"`
+	Response   string `json:"Response"`
+	Error      string `json:"Error"`
 }
 
 type OMDbSearchResponse struct {
